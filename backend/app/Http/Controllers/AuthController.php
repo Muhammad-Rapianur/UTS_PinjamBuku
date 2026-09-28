@@ -13,19 +13,22 @@ class AuthController extends Controller
     // Register User Baru
     public function register(Request $request)
     {
-        $request->validate([
+        // Validasi input
+        $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:6',
         ]);
 
+        // Buat user baru dengan peran default 'member'
         $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'role' => 'member', // Default role sebagai member/peminjam
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'password' => Hash::make($validated['password']),
+            'role' => 'member', // Default sebagai member perpustakaan
         ]);
 
+        // Buat token Sanctum untuk user yang baru mendaftar
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([

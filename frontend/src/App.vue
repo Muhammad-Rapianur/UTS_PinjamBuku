@@ -13,9 +13,16 @@ const successMessage = ref('')
 const token = ref(localStorage.getItem('token') || '')
 const user = ref(JSON.parse(localStorage.getItem('user')) || null)
 
+// Toggle tampilan antara Login dan Register
+const isRegistering = ref(false)
+
 // State Login
 const loginForm = ref({ email: '', password: '' })
 const loginError = ref('')
+
+// State Register
+const registerForm = ref({ name: '', email: '', password: '' })
+const registerError = ref('')
 
 // State Tambah Buku (Admin)
 const bookForm = ref({ title: '', author: '', category_id: 1, stock: 1 })
@@ -61,6 +68,29 @@ const login = async () => {
       loginError.value = 'Email atau password salah.'
     } else {
       loginError.value = 'Terjadi kesalahan pada server.'
+    }
+  }
+}
+
+// Register (Daftar Akun Baru)
+const register = async () => {
+  registerError.value = ''
+  try {
+    const response = await api.post('/register', registerForm.value)
+    token.value = response.data.access_token
+    user.value = response.data.user
+    
+    localStorage.setItem('token', token.value)
+    localStorage.setItem('user', JSON.stringify(user.value))
+    
+    successMessage.value = 'Registrasi berhasil! Selamat datang.'
+    fetchBooks()
+    fetchBorrowings()
+  } catch (error) {
+    if (error.response && error.response.status === 422) {
+      registerError.value = 'Format data salah atau email sudah terdaftar.'
+    } else {
+      registerError.value = 'Terjadi kesalahan pada server saat registrasi.'
     }
   }
 }
@@ -159,21 +189,53 @@ onMounted(() => {
     <div v-if="errorMessage" style="color: red; margin-bottom: 15px; font-weight: bold;">{{ errorMessage }}</div>
     <div v-if="successMessage" style="color: green; margin-bottom: 15px; font-weight: bold;">{{ successMessage }}</div>
 
-    <!-- Halaman Login -->
+    <!-- Halaman Login / Register (Jika belum login) -->
     <div v-if="!token" style="background: #f0f4f8; padding: 20px; margin-bottom: 25px; border-radius: 5px; max-width: 400px;">
-      <h3>Login Sistem</h3>
-      <form @submit.prevent="login">
-        <div style="margin-bottom: 10px;">
-          <label>Email:</label><br>
-          <input v-model="loginForm.email" type="email" style="width: 100%; padding: 6px;" required />
-        </div>
-        <div style="margin-bottom: 10px;">
-          <label>Password:</label><br>
-          <input v-model="loginForm.password" type="password" style="width: 100%; padding: 6px;" required />
-        </div>
-        <div v-if="loginError" style="color: red; margin-bottom: 10px; font-size: 13px;">{{ loginError }}</div>
-        <button type="submit" style="padding: 8px 15px; background: #007bff; color: white; border: none; cursor: pointer;">Login</button>
-      </form>
+      
+      <!-- FORM LOGIN -->
+      <div v-if="!isRegistering">
+        <h3>Login Sistem</h3>
+        <form @submit.prevent="login">
+          <div style="margin-bottom: 10px;">
+            <label>Email:</label><br>
+            <input v-model="loginForm.email" type="email" style="width: 100%; padding: 6px;" required />
+          </div>
+          <div style="margin-bottom: 10px;">
+            <label>Password:</label><br>
+            <input v-model="loginForm.password" type="password" style="width: 100%; padding: 6px;" required />
+          </div>
+          <div v-if="loginError" style="color: red; margin-bottom: 10px; font-size: 13px;">{{ loginError }}</div>
+          <button type="submit" style="padding: 8px 15px; background: #007bff; color: white; border: none; cursor: pointer;">Login</button>
+        </form>
+        <p style="margin-top: 15px; font-size: 13px;">
+          Belum punya akun? <a href="#" @click.prevent="isRegistering = true" style="color: #007bff;">Daftar di sini</a>
+        </p>
+      </div>
+
+      <!-- FORM REGISTER (PENDAFTARAN) -->
+      <div v-else>
+        <h3>Daftar Akun Member Baru</h3>
+        <form @submit.prevent="register">
+          <div style="margin-bottom: 10px;">
+            <label>Nama Lengkap:</label><br>
+            <input v-model="registerForm.name" type="text" style="width: 100%; padding: 6px;" required />
+          </div>
+          <div style="margin-bottom: 10px;">
+            <label>Email:</label><br>
+            <input v-model="registerForm.email" type="email" style="width: 100%; padding: 6px;" required />
+          </div>
+          <div style="margin-bottom: 10px;">
+            <label>Password:</label><br>
+            <input v-model="registerForm.password" type="password" style="width: 100%; padding: 6px;" required />
+          </div>
+          <div v-if="registerError" style="color: red; margin-bottom: 10px; font-size: 13px;">{{ registerError }}</div>
+          <button type="submit" style="padding: 8px 15px; background: #28a745; color: white; border: none; cursor: pointer;">Daftar & Masuk</button>
+        </form>
+        <p style="margin-top: 15px; font-size: 13px;">
+          Sudah punya akun? <a href="#" @click.prevent="isRegistering = false" style="color: #007bff;">Login di sini</a>
+        </p>
+      </div>
+
     </div>
 
     <!-- Tampilan Setelah Login -->
@@ -254,7 +316,6 @@ onMounted(() => {
         </thead>
         <tbody>
           <template v-for="(borrow, index) in borrowings" :key="borrow.id">
-            <!-- Jika Admin, tampilkan semua. Jika Member, hanya tampilkan milik member tersebut -->
             <tr v-if="user?.role === 'admin' || borrow.user_id === user?.id">
               <td align="center">{{ index + 1 }}</td>
               <td v-if="user?.role === 'admin'">{{ borrow.user?.name }}</td>
