@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 
 const api = axios.create({
@@ -12,6 +12,18 @@ const errorMessage = ref('')
 const successMessage = ref('')
 const token = ref(localStorage.getItem('token') || '')
 const user = ref(JSON.parse(localStorage.getItem('user')) || null)
+
+// State Search & Filter Buku
+const searchBook = ref('')
+const filterStockStatus = ref('all') // 'all', 'available', 'empty'
+const currentBookPage = ref(1)
+const itemsPerBookPage = 10
+
+// State Search & Filter Riwayat Peminjaman
+const searchBorrowing = ref('')
+const filterBorrowStatus = ref('all') // 'all', 'dipinjam', 'dikembalikan'
+const currentBorrowPage = ref(1)
+const itemsPerBorrowPage = 10
 
 // Toggle tampilan antara Login dan Register
 const isRegistering = ref(false)
@@ -173,6 +185,58 @@ const returnBook = async (borrowingId) => {
   }
 }
 
+// --- COMPUTED PROPERTIES UNTUK SEARCH, FILTER, & PAGINATION ---
+
+const filteredBooks = computed(() => {
+  return books.value.filter(book => {
+    const keyword = searchBook.value.toLowerCase()
+    const matchesKeyword = (book.title?.toLowerCase().includes(keyword) || false) || 
+                           (book.author?.toLowerCase().includes(keyword) || false)
+    
+    if (filterStockStatus.value === 'available') {
+      return matchesKeyword && Number(book.stock) > 0
+    } else if (filterStockStatus.value === 'empty') {
+      return matchesKeyword && Number(book.stock) <= 0
+    }
+    return matchesKeyword
+  })
+})
+
+// Pagination Buku
+const totalBookPages = computed(() => Math.ceil(filteredBooks.value.length / itemsPerBookPage) || 1)
+const paginatedBooks = computed(() => {
+  const start = (currentBookPage.value - 1) * itemsPerBookPage
+  const end = start + itemsPerBookPage
+  return filteredBooks.value.slice(start, end)
+})
+
+const filteredBorrowings = computed(() => {
+  return borrowings.value.filter(borrow => {
+    // Validasi kepemilikan data (Admin melihat semua, Member melihat milik sendiri)
+    const isOwnerOrAdmin = (user.value?.role === 'admin') || (borrow.user_id === user.value?.id)
+    if (!isOwnerOrAdmin) return false
+
+    const keyword = searchBorrowing.value.toLowerCase()
+    const matchBook = borrow.book?.title?.toLowerCase().includes(keyword) || false
+    const matchUser = borrow.user?.name?.toLowerCase().includes(keyword) || false
+    const matchesKeyword = matchBook || matchUser
+
+    if (filterBorrowStatus.value !== 'all') {
+      return matchesKeyword && borrow.status === filterBorrowStatus.value
+    }
+
+    return matchesKeyword
+  })
+})
+
+// Pagination Riwayat Peminjaman
+const totalBorrowPages = computed(() => Math.ceil(filteredBorrowings.value.length / itemsPerBorrowPage) || 1)
+const paginatedBorrowings = computed(() => {
+  const start = (currentBorrowPage.value - 1) * itemsPerBorrowPage
+  const end = start + itemsPerBorrowPage
+  return filteredBorrowings.value.slice(start, end)
+})
+
 onMounted(() => {
   if (token.value) {
     fetchBooks()
@@ -273,7 +337,24 @@ onMounted(() => {
 
       <!-- ==================== DAFTAR BUKU ==================== -->
       <h3>Daftar Buku Perpustakaan</h3>
-      <table border="1" cellpadding="10" cellspacing="0" style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+      
+      <!-- Kontrol Pencarian & Filter Buku -->
+      <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+        <input 
+          v-model="searchBook" 
+          @input="currentBookPage = 1"
+          type="text" 
+          placeholder="Cari judul buku atau penulis..." 
+          style="flex: 1; min-width: 200px; padding: 6px;" 
+        />
+        <select v-model="filterStockStatus" @change="currentBookPage = 1" style="padding: 6px;">
+          <option value="all">Semua Status Stok</option>
+          <option value="available">Tersedia (Stok > 0)</option>
+          <option value="empty">Habis (Stok 0)</option>
+        </select>
+      </div>
+
+      <table border="1" cellpadding="10" cellspacing="0" style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
         <thead>
           <tr style="background: #f2f2f2;">
             <th>No</th>
@@ -284,8 +365,11 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(book, index) in books" :key="book.id">
-            <td align="center">{{ index + 1 }}</td>
+          <tr v-if="paginatedBooks.length === 0">
+            <td :colspan="user?.role === 'member' ? 5 : 4" align="center" style="color: gray;">Tidak ada buku yang ditemukan.</td>
+          </tr>
+          <tr v-for="(book, index) in paginatedBooks" :key="book.id">
+            <td align="center">{{ (currentBookPage - 1) * itemsPerBookPage + index + 1 }}</td>
             <td>{{ book.title }}</td>
             <td>{{ book.author }}</td>
             <td align="center">{{ book.stock }}</td>
@@ -301,9 +385,41 @@ onMounted(() => {
         </tbody>
       </table>
 
+      <!-- Navigasi Pagination Buku -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; font-size: 14px;">
+        <span>Halaman {{ currentBookPage }} dari {{ totalBookPages }}</span>
+        <div>
+          <button 
+            @click="currentBookPage--" 
+            :disabled="currentBookPage === 1"
+            style="padding: 5px 10px; margin-right: 5px; cursor: pointer;">Sebelumnya</button>
+          <button 
+            @click="currentBookPage++" 
+            :disabled="currentBookPage >= totalBookPages"
+            style="padding: 5px 10px; cursor: pointer;">Selanjutnya</button>
+        </div>
+      </div>
+
       <!-- ==================== RIWAYAT PEMINJAMAN ==================== -->
       <h3>{{ user?.role === 'admin' ? 'Semua Riwayat Peminjaman (Admin)' : 'Riwayat Peminjaman Saya' }}</h3>
-      <table border="1" cellpadding="10" cellspacing="0" style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+
+      <!-- Kontrol Pencarian & Filter Riwayat -->
+      <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+        <input 
+          v-model="searchBorrowing" 
+          @input="currentBorrowPage = 1"
+          type="text" 
+          placeholder="Cari riwayat (judul buku / nama peminjam)..." 
+          style="flex: 1; min-width: 200px; padding: 6px;" 
+        />
+        <select v-model="filterBorrowStatus" @change="currentBorrowPage = 1" style="padding: 6px;">
+          <option value="all">Semua Status Peminjaman</option>
+          <option value="dipinjam">Dipinjam (Aktif)</option>
+          <option value="dikembalikan">Selesai (Dikembalikan)</option>
+        </select>
+      </div>
+
+      <table border="1" cellpadding="10" cellspacing="0" style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
         <thead>
           <tr style="background: #f2f2f2;">
             <th>No</th>
@@ -315,30 +431,47 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody>
-          <template v-for="(borrow, index) in borrowings" :key="borrow.id">
-            <tr v-if="user?.role === 'admin' || borrow.user_id === user?.id">
-              <td align="center">{{ index + 1 }}</td>
-              <td v-if="user?.role === 'admin'">{{ borrow.user?.name }}</td>
-              <td>{{ borrow.book?.title }}</td>
-              <td align="center">{{ borrow.borrow_date }}</td>
-              <td align="center">
-                <span :style="{ color: borrow.status === 'dipinjam' ? 'orange' : 'green', fontWeight: 'bold' }">
-                  {{ borrow.status }}
-                </span>
-              </td>
-              <td align="center">
-                <button 
-                  v-if="borrow.status === 'dipinjam'"
-                  @click="returnBook(borrow.id)"
-                  style="background: #ffc107; color: black; border: none; padding: 5px 10px; cursor: pointer; font-size: 12px;">
-                  Kembalikan
-                </button>
-                <span v-else style="color: gray; font-size: 12px;">Selesai</span>
-              </td>
-            </tr>
-          </template>
+          <tr v-if="paginatedBorrowings.length === 0">
+            <td :colspan="user?.role === 'admin' ? 6 : 5" align="center" style="color: gray;">Tidak ada riwayat peminjaman yang ditemukan.</td>
+          </tr>
+          <tr v-for="(borrow, index) in paginatedBorrowings" :key="borrow.id">
+            <td align="center">{{ (currentBorrowPage - 1) * itemsPerBorrowPage + index + 1 }}</td>
+            <td v-if="user?.role === 'admin'">{{ borrow.user?.name }}</td>
+            <td>{{ borrow.book?.title ?? 'Buku Tidak Ditemukan' }}</td>
+            <td align="center">{{ borrow.borrow_date }}</td>
+            <td align="center">
+              <span :style="{ color: borrow.status === 'dipinjam' ? 'orange' : 'green', fontWeight: 'bold' }">
+                {{ borrow.status }}
+              </span>
+            </td>
+            <td align="center">
+              <button 
+                v-if="borrow.status === 'dipinjam'"
+                @click="returnBook(borrow.id)"
+                style="background: #ffc107; color: black; border: none; padding: 5px 10px; cursor: pointer; font-size: 12px;">
+                Kembalikan
+              </button>
+              <span v-else style="color: gray; font-size: 12px;">Selesai</span>
+            </td>
+          </tr>
         </tbody>
       </table>
+
+      <!-- Navigasi Pagination Riwayat -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; font-size: 14px;">
+        <span>Halaman {{ currentBorrowPage }} dari {{ totalBorrowPages }}</span>
+        <div>
+          <button 
+            @click="currentBorrowPage--" 
+            :disabled="currentBorrowPage === 1"
+            style="padding: 5px 10px; margin-right: 5px; cursor: pointer;">Sebelumnya</button>
+          <button 
+            @click="currentBorrowPage++" 
+            :disabled="currentBorrowPage >= totalBorrowPages"
+            style="padding: 5px 10px; cursor: pointer;">Selanjutnya</button>
+        </div>
+      </div>
+
     </div>
   </div>
 </template>
